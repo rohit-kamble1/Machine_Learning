@@ -1,21 +1,25 @@
 
+# load_dotenv()
+# os.getenv("GOOGLE_API_KEY")
+# genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+#from langchain_openai import OpenAIEmbeddings
+#import google.generativeai as genai
+#from langchain.llms import OpenAI
+#from dotenv import load_dotenv
+
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-#from langchain_openai import OpenAIEmbeddings
-import google.generativeai as genai
-#from langchain.llms import OpenAI
 from langchain.vectorstores import FAISS
+from langchain.document_loaders import S3Loder
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
-#from dotenv import load_dotenv
 from secretKey import openai_api_key
-# load_dotenv()
-# os.getenv("GOOGLE_API_KEY")
-# genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+from secretKey import S3_STORE
+
 os.environ['OPENAI_API_KEY'] = openai_api_key
 
 def get_pdf_text(pdf_docs):
@@ -34,8 +38,14 @@ def get_text_chunks(text):
 def get_vector_store(text_chunks):
     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
     #embeddings = OpenAIEmbeddings(model = "text-embedding-3-large", dimensions= 1024)
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local("faiss_index") 
+    # vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+    # vector_store.save_local("faiss_index") 
+    if (os.getenv("S3_STORE")):
+        loader = S3Loder(os.getenv("S3_STORE"))
+        documents = loader.load()
+    
+    faiss_index = FAISS.from_documents(text_chunks, embedding = embeddings)
+    faiss_index.save(os.getenv("S3_STORE") + "/faiss-index")
 
 def get_conversational_chain():
 
@@ -61,7 +71,8 @@ def user_input(user_question):
     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
     #embeddings = OpenAIEmbeddings(model= "text-embedding-3-large", dimensions= 1024)
     
-    new_db = FAISS.load_local("faiss_index", embeddings)
+    #new_db = FAISS.load_local("faiss_index", embeddings)
+    new_db = FAISS.load(os.getenv("S3_STORE")+"/faiss-index", embeddings)
     docs = new_db.similarity_search(user_question)
 
     chain = get_conversational_chain()
@@ -79,12 +90,6 @@ def main():
     st.set_page_config("Chat PDF")
     st.header("Chat with PDF using Gemini💁")
     #st.header("Chat with PDF using chatGPT")
-
-    user_question = st.text_input("Ask a Question from the PDF Files")
-
-    if user_question:
-        user_input(user_question)
-
     with st.sidebar:
         st.title("Menu:")
         pdf_docs = st.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", accept_multiple_files=True)
@@ -94,6 +99,13 @@ def main():
                 text_chunks = get_text_chunks(raw_text)
                 get_vector_store(text_chunks)
                 st.success("Done")
+                
+    user_question = st.text_input("Ask a Question from the PDF Files")
+
+    if user_question:
+        user_input(user_question)
+
+
 
 if __name__ == "__main__":
     main()
