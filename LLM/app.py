@@ -2,28 +2,42 @@
 # load_dotenv()
 # os.getenv("GOOGLE_API_KEY")
 # genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-from langchain_openai import OpenAIEmbeddings
+#from langchain_openai import OpenAIEmbeddings
 #import google.generativeai as genai
-from langchain.llms import OpenAI
+#from langchain.llms import OpenAI
 #from dotenv import load_dotenv
 
 import streamlit as st
+import pinecone
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
-#from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.document_loaders import S3Loder
-#from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+#from langchain.vectorstores import FAISS
+from langchain.vectorstores import Pinecone
+#from langchain.document_loaders import S3Loder
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
-#from secretKey import google_api_key
-from secretKey import openai_api_key
-from secretKey import S3_STORE
+from secretKey import google_api_key
+#from secretKey import openai_api_key
+#from secretKey import S3_STORE
+from secretKey import pinecone_api_key
+from secretKey import index_name
 
-os.environ['OPENAI_API_KEY'] = openai_api_key
-#os.environ["GOOGLE_API_KEY"] = google_api_key
-os.environ['S3_STORE'] = S3_STORE
+# os.environ['OPENAI_API_KEY'] = openai_api_key
+os.environ["GOOGLE_API_KEY"] = google_api_key
+os.environ['PINECONE_API_KEY'] = pinecone_api_key
+os.environ["index_name"] = index_name
+
+#pinecone.init(api_key=PINECONE_API_KEY)
+
+if index_name not in pinecone.list_indexes():
+  pinecone.create_index(name=index_name, dimension=1024, metric="cosine")
+
+index = pinecone.Index(index_name)
+
+# os.environ['S3_STORE'] = S3_STORE
 
 def get_pdf_text(pdf_docs):
     text=""
@@ -39,16 +53,17 @@ def get_text_chunks(text):
     return chunks
 
 def get_vector_store(text_chunks):
-    #embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
-    embeddings = OpenAIEmbeddings(model = "text-embedding-3-large", dimensions= 1024)
+    embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
+    # embeddings = OpenAIEmbeddings(model = "text-embedding-3-large", dimensions= 1024)
     # vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     # vector_store.save_local("faiss_index") 
-    if (os.getenv("S3_STORE")):
-        loader = S3Loder(os.getenv("S3_STORE"))
-        documents = loader.load()
+    Pinecone.from_documents(text_chunks, embeddings, index_name=index_name)
+    # if (os.getenv("S3_STORE")):
+    #     loader = S3Loder(os.getenv("S3_STORE"))
+    #     documents = loader.load()
     
-    faiss_index = FAISS.from_documents(text_chunks, embedding = embeddings)
-    faiss_index.save(os.getenv("S3_STORE") + "/faiss-index")
+    # faiss_index = FAISS.from_documents(text_chunks, embedding = embeddings)
+    # faiss_index.save(os.getenv("S3_STORE") + "/faiss-index")
 
 def get_conversational_chain():
 
@@ -61,8 +76,8 @@ def get_conversational_chain():
     Answer:
     """
 
-    #model = ChatGoogleGenerativeAI(model = 'gemini-pro', temperature=0.5)
-    model = OpenAI(temperature = 0.5)
+    model = ChatGoogleGenerativeAI(model = 'gemini-pro', temperature=0.5)
+    # model = OpenAI(temperature = 0.5)
 
     prompt = PromptTemplate(template = prompt_template, input_variables = ["context", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
@@ -72,11 +87,12 @@ def get_conversational_chain():
 
 
 def user_input(user_question):
-    #embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
-    embeddings = OpenAIEmbeddings(model= "text-embedding-3-large", dimensions= 1024)
+    embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
+    # embeddings = OpenAIEmbeddings(model= "text-embedding-3-large", dimensions= 1024)
     
     #new_db = FAISS.load_local("faiss_index", embeddings)
-    new_db = FAISS.load(os.getenv("S3_STORE")+"/faiss-index", embeddings)
+    # new_db = FAISS.load(os.getenv("S3_STORE")+"/faiss-index", embeddings)
+    new_db = Pinecone.from_existing_index(index_name, embeddings)
     docs = new_db.similarity_search(user_question)
 
     chain = get_conversational_chain()
@@ -92,8 +108,8 @@ def user_input(user_question):
 
 def main():
     st.set_page_config("Chat PDF")
-    #st.header("Chat with PDF using Gemini💁")
-    st.header("Chat with PDF using chatGPT")
+    st.header("Chat with PDF using Gemini💁")
+    # st.header("Chat with PDF using chatGPT")
     with st.sidebar:
         st.title("Menu:")
         pdf_docs = st.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", accept_multiple_files=True)
